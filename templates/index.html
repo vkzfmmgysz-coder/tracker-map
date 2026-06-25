@@ -196,6 +196,97 @@ body { font-family: 'Segoe UI', sans-serif; background: #0a0f1e; color: #e0e8ff;
 
 .leaflet-container { background: #0f1929; }
 
+/* ── 手機開關按鈕 ── */
+#sidebar-toggle {
+  display: none;
+  position: absolute;
+  top: 12px; left: 12px;
+  z-index: 1100;
+  background: #1a2a6cee;
+  border: 1px solid #1e90ff66;
+  border-radius: 8px;
+  color: #4fc3f7;
+  font-size: 1.2em;
+  width: 44px; height: 44px;
+  cursor: pointer;
+  align-items: center; justify-content: center;
+  box-shadow: 0 2px 12px #0008;
+}
+
+/* ── 手機版 ── */
+@media (max-width: 767px) {
+  #header {
+    padding: 8px 12px;
+    gap: 8px;
+  }
+  #header h1 { font-size: 1em; letter-spacing: 1px; }
+  #header .subtitle { display: none; }
+  #header .badge { font-size: 0.68em; padding: 2px 6px; }
+
+  #main { position: relative; }
+
+  /* 側邊欄變成從底部滑上來的抽屜 */
+  #sidebar {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    width: 100%;
+    height: 65vh;
+    z-index: 1050;
+    border-right: none;
+    border-top: 2px solid #1e90ff55;
+    border-radius: 16px 16px 0 0;
+    transform: translateY(100%);
+    transition: transform 0.3s ease;
+    box-shadow: 0 -4px 24px #000a;
+  }
+  #sidebar.open { transform: translateY(0); }
+
+  /* 抽屜頂部拖把線 */
+  #sidebar-header::before {
+    content: '';
+    display: block;
+    width: 40px; height: 4px;
+    background: #1e90ff66;
+    border-radius: 2px;
+    margin: 0 auto 8px;
+  }
+
+  #sidebar-toggle { display: flex; }
+
+  /* 地圖全螢幕 */
+  #map { width: 100%; }
+
+  /* 播放列縮小靠底部 */
+  #timeline-bar {
+    left: 8px; right: 8px;
+    bottom: 16px;
+    padding: 10px 14px;
+    gap: 10px;
+  }
+  #play-btn { width: 42px; height: 42px; font-size: 1.1em; }
+  #bottom-speed { max-width: none; flex: 1; }
+  #time-display { font-size: 0.72em; min-width: 0; }
+
+  /* 統計欄移到右上角，縮小 */
+  #stats-bar {
+    top: 8px; right: 8px;
+    font-size: 0.65em;
+    padding: 5px 8px;
+    min-width: 0;
+  }
+
+  /* 線民卡片加大點擊區域 */
+  .agent-card { padding: 12px 14px; }
+  .agent-card .name { font-size: 0.9em; }
+
+  /* 上傳區稍微大一點 */
+  #upload-btn { padding: 14px; font-size: 0.82em; }
+  #upload-password { font-size: 0.82em; padding: 8px 10px; }
+
+  /* 篩選按鈕加大 */
+  .filter-btn { font-size: 0.75em; padding: 6px 12px; }
+}
+
 /* Loading */
 #loading {
   position: absolute;
@@ -265,6 +356,7 @@ body { font-family: 'Segoe UI', sans-serif; background: #0a0f1e; color: #e0e8ff;
   </div>
 
   <div style="position:relative; flex:1;">
+    <button id="sidebar-toggle" onclick="toggleSidebar()" title="線民清單">☰</button>
     <div id="map"></div>
     <div id="loading"><div class="spinner"></div><div class="pulse">解析追蹤資料中...</div></div>
 
@@ -679,6 +771,20 @@ uploadBtn.ondrop = async (e) => {
   status.textContent = `✅ 成功 ${ok} 個`;
   await loadTrackers();
 };
+
+// ── 手機側邊欄開關 ────────────────────────────────────────────
+function toggleSidebar() {
+  const sb = document.getElementById('sidebar');
+  const btn = document.getElementById('sidebar-toggle');
+  const isOpen = sb.classList.toggle('open');
+  btn.textContent = isOpen ? '✕' : '☰';
+}
+
+// 點地圖時收起側邊欄
+map.on('click', () => {
+  const sb = document.getElementById('sidebar');
+  if (sb.classList.contains('open')) toggleSidebar();
+});
 
 // ── Init ──────────────────────────────────────────────────────
 loadTrackers();
