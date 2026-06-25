@@ -527,89 +527,86 @@ function updateStats() {
 }
 
 // ── Animation ─────────────────────────────────────────────────
-// Collect all timestamps across all visible trackers
-function allTimestamps() {
-  const ts = visibleTrackers.flatMap(t => t.locations.map(l => new Date(l.time).getTime()));
-  if (!ts.length) return { min: 0, max: 1 };
-  return { min: Math.min(...ts), max: Math.max(...ts) };
-}
+// 每個 tracker 各自有獨立的 phase（0→1→0 來回），互不干擾
 
-function interpolatePosition(latlngs, progress) {
+const agentPhase = {}; // id -> 0..1
+let lastTs = null;
+
+function interpolatePosition(latlngs, p) {
   if (!latlngs || latlngs.length === 0) return null;
   if (latlngs.length === 1) return latlngs[0];
   const total = latlngs.length - 1;
-  const idx = progress * total;
+  const idx = p * total;
   const lo = Math.floor(idx);
   const hi = Math.min(lo + 1, total);
-  const t = idx - lo;
+  const f = idx - lo;
   const a = latlngs[lo], b = latlngs[hi];
-  return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+  return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
+}
+
+// 計算路線總長度（公尺近似）用來讓所有人速度一致
+function routeLength(latlngs) {
+  let d = 0;
+  for (let i = 1; i < latlngs.length; i++) {
+    const dy = (latlngs[i][0] - latlngs[i-1][0]) * 111000;
+    const dx = (latlngs[i][1] - latlngs[i-1][1]) * 111000 * Math.cos(latlngs[i][0] * Math.PI / 180);
+    d += Math.sqrt(dx*dx + dy*dy);
+  }
+  return Math.max(d, 1);
 }
 
 function tickAnimation(ts) {
   if (!playing) return;
-  if (lastTs !== null) {
-    const speed = parseFloat(document.getElementById('speed-slider').value);
-    animProgress += ((ts - lastTs) / 1000) * speed * 0.015;
-    if (animProgress > 1) animProgress = 0; // loop
-  }
+  const speed = parseFloat(document.getElementById('speed-slider').value);
+  const dt = lastTs !== null ? (ts - lastTs) / 1000 : 0;
   lastTs = ts;
 
-  const { min, max } = allTimestamps();
-  const curTime = min + animProgress * (max - min);
-
-  // Update slider & display
-  document.getElementById('timeline-slider').value = animProgress * 100;
-  document.getElementById('stat-progress').textContent = (animProgress * 100).toFixed(1) + '%';
-  const d = new Date(curTime);
-  document.getElementById('time-display').textContent = isNaN(d) ? '--' :
-    d.toLocaleString('zh-TW', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-
-  // Update each agent
   visibleTrackers.forEach(t => {
     const layer = agentLayers[t.id];
-    if (!layer) return;
+    if (!layer || layer.latlngs.length < 1) return;
 
-    const tMin = new Date(t.locations[0].time).getTime();
-    const tMax = new Date(t.locations[t.locations.length - 1].time).getTime();
-    const localP = tMax === tMin ? 0 : Math.max(0, Math.min(1, (curTime - tMin) / (tMax - tMin)));
+    // 每個小人依路線長度調整速度，短路線跑快一點，長路線慢一點
+    const baseSpeed = 80 / routeLength(layer.latlngs); // 約 80m/s 等效
+    const delta = dt * speed * baseSpeed;
 
-    // Interpolated position
+    // phase: 0→1 前進，1→2 後退（2 取模回 0）
+    if (agentPhase[t.id] === undefined) agentPhase[t.id] = Math.random(); // 錯開起點
+    agentPhase[t.id] = (agentPhase[t.id] + delta) % 2;
+
+    // 來回：0→1 forward, 1→2 backward
+    const raw = agentPhase[t.id];
+    const localP = raw <= 1 ? raw : 2 - raw;
+
+    // 移動小人
     const pos = interpolatePosition(layer.latlngs, localP);
-    if (!pos) return;
+    if (pos) layer.spyMarker.setLatLng(pos);
 
-    // Move spy marker
-    layer.spyMarker.setLatLng(pos);
-
-    // Trail: show walked portion
+    // 已走過的尾跡
     const trailCount = Math.floor(localP * (layer.latlngs.length - 1)) + 1;
     layer.trail.setLatLngs(layer.latlngs.slice(0, trailCount));
 
-    // Get DOM element for rotation + walk animation
+    // 走路動畫
     const el = layer.spyMarker.getElement();
     const wrap = el ? el.querySelector('.spy-wrap') : null;
-    if (wrap) {
-      const isMoving = localP > 0 && localP < 1;
-      // Walking animation
-      wrap.classList.toggle('walking', isMoving && playing);
+    if (wrap) wrap.classList.add('walking');
 
-      // Rotate toward next waypoint
-      const nextP = Math.min(1, localP + 0.05);
-      const nextPos = interpolatePosition(layer.latlngs, nextP);
-      if (nextPos && (nextPos[0] !== pos[0] || nextPos[1] !== pos[1])) {
-        const deg = bearing(pos, nextPos);
-        // Only rotate body, not the whole icon (anchor stays)
-        wrap.style.transform = `rotate(${deg - 90}deg)`;
-        wrap.style.transformOrigin = '50% 85%';
-      }
-    }
-
-    // Dim dots not yet reached
+    // 亮度：已到達的點亮，未到達暗
     layer.dots.forEach((dot, i) => {
-      const frac = t.locations.length > 1 ? i / (t.locations.length - 1) : 0;
+      const frac = layer.latlngs.length > 1 ? i / (layer.latlngs.length - 1) : 0;
       dot.setOpacity(frac <= localP ? 1 : 0.15);
     });
   });
+
+  // 時間軸顯示：用平均 phase
+  const avgP = visibleTrackers.length
+    ? visibleTrackers.reduce((s, t) => {
+        const raw = agentPhase[t.id] ?? 0;
+        return s + (raw <= 1 ? raw : 2 - raw);
+      }, 0) / visibleTrackers.length
+    : 0;
+  document.getElementById('timeline-slider').value = avgP * 100;
+  document.getElementById('stat-progress').textContent = (avgP * 100).toFixed(0) + '%';
+  document.getElementById('time-display').textContent = playing ? '🚶 動態移動中' : '⏸ 已暫停';
 
   animFrame = requestAnimationFrame(tickAnimation);
 }
@@ -622,13 +619,18 @@ document.getElementById('play-btn').onclick = () => {
     animFrame = requestAnimationFrame(tickAnimation);
   } else {
     if (animFrame) cancelAnimationFrame(animFrame);
+    // 暫停時停止走路動畫
+    Object.values(agentLayers).forEach(l => {
+      const el = l.spyMarker?.getElement();
+      const wrap = el?.querySelector('.spy-wrap');
+      if (wrap) wrap.classList.remove('walking');
+    });
   }
 };
 
+// 滑桿改為速度倍率顯示，不再控制時間位置
 document.getElementById('timeline-slider').oninput = e => {
-  animProgress = parseFloat(e.target.value) / 100;
-  lastTs = null;
-  if (!playing) tickAnimation(performance.now());
+  document.getElementById('speed-slider').value = Math.round(parseFloat(e.target.value) / 10);
 };
 
 // ── Upload ────────────────────────────────────────────────────
