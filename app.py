@@ -25,7 +25,6 @@ DEVICE_COLORS = {
 
 
 def pdf_fingerprint(filepath):
-    """Stable key: filename + mtime."""
     st = os.stat(filepath)
     return f"{os.path.basename(filepath)}:{st.st_mtime}"
 
@@ -93,7 +92,6 @@ def load_cache():
     try:
         with open(CACHE_FILE, encoding="utf-8") as f:
             data = json.load(f)
-        # 相容舊格式（只有 entries 沒有 all_trackers）
         if isinstance(data, dict) and "entries" not in data:
             return {"entries": data, "all_trackers": []}
         return data
@@ -106,12 +104,12 @@ def save_cache(cache):
         json.dump(cache, f, ensure_ascii=False)
 
 
-def load_all_trackers():
+def scan_and_update_cache():
+    """掃描本機 PDF，更新快取並回傳完整清單。若無 PDF 則從快取讀取。"""
     cache = load_cache()
     entries = cache.get("entries", {})
     trackers = []
     seen = set()
-    changed = False
 
     for d in [PDF_DIR, UPLOAD_DIR]:
         if not os.path.exists(d):
@@ -122,42 +120,43 @@ def load_all_trackers():
             seen.add(fname)
             path = os.path.join(d, fname)
             key = pdf_fingerprint(path)
-
-            if key in entries:
-                data = entries[key]
-            else:
-                data = parse_pdf(path)
-                if data:
-                    entries[key] = data
-                    changed = True
-
+            data = entries.get(key) or parse_pdf(path)
             if data:
+                entries[key] = data
                 trackers.append(data)
 
     if trackers:
         trackers.sort(key=lambda x: x["locations"][0]["time"])
-        # 有 PDF 時更新完整清單快取
         cache["entries"] = entries
         cache["all_trackers"] = trackers
         save_cache(cache)
-    else:
-        # 沒有 PDF（如雲端部署），直接回傳快取的完整清單
-        trackers = cache.get("all_trackers", [])
+        return trackers
 
-    return trackers
+    # 雲端部署：無 PDF，直接從快取中的完整清單回傳
+    return cache.get("all_trackers", [])
+
+
+# ── 啟動時預載到記憶體，避免每次請求都重新掃描 ──
+_trackers_memory: list = []
+
+
+def _init_trackers():
+    global _trackers_memory
+    _trackers_memory = scan_and_update_cache()
+
+
+_init_trackers()
 
 
 @app.route("/api/debug")
 def api_debug():
     cache = load_cache()
     return jsonify({
+        "memory_count": len(_trackers_memory),
+        "cache_all_trackers": len(cache.get("all_trackers", [])),
+        "cache_entries": len(cache.get("entries", {})),
         "cache_file_exists": os.path.exists(CACHE_FILE),
-        "cache_file_path": CACHE_FILE,
-        "all_trackers_count": len(cache.get("all_trackers", [])),
-        "entries_count": len(cache.get("entries", {})),
-        "pdf_dir": PDF_DIR,
         "pdf_files": [f for f in os.listdir(PDF_DIR) if f.endswith(".pdf")],
-        "upload_files": [f for f in os.listdir(UPLOAD_DIR) if f.endswith(".pdf")] if os.path.exists(UPLOAD_DIR) else [],
     })
 
 
@@ -168,16 +167,18 @@ def index():
 
 @app.route("/api/trackers")
 def api_trackers():
-    return jsonify(load_all_trackers())
+    return jsonify(_trackers_memory)
 
 
 @app.route("/api/upload", methods=["POST"])
 def api_upload():
+    global _trackers_memory
     if "files" not in request.files:
         return jsonify({"error": "No files"}), 400
     files = request.files.getlist("files")
-    results = []
     cache = load_cache()
+    entries = cache.get("entries", {})
+    results = []
 
     for f in files:
         if not f.filename.endswith(".pdf"):
@@ -187,14 +188,15 @@ def api_upload():
         data = parse_pdf(dest)
         if data:
             key = pdf_fingerprint(dest)
-            cache[key] = data
+            entries[key] = data
         results.append({
             "filename": f.filename,
             "ok": data is not None,
             "locations": len(data["locations"]) if data else 0,
         })
 
-    save_cache(cache)
+    # 重新整理記憶體清單
+    _trackers_memory = scan_and_update_cache()
     return jsonify({"uploaded": results})
 
 
