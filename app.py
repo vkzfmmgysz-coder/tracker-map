@@ -173,6 +173,10 @@ def api_trackers():
 @app.route("/api/upload", methods=["POST"])
 def api_upload():
     global _trackers_memory
+    # 密碼驗證
+    secret = os.environ.get("UPLOAD_PASSWORD", "")
+    if secret and request.form.get("password") != secret:
+        return jsonify({"error": "密碼錯誤"}), 403
     if "files" not in request.files:
         return jsonify({"error": "No files"}), 400
     files = request.files.getlist("files")

@@ -229,6 +229,7 @@ body { font-family: 'Segoe UI', sans-serif; background: #0a0f1e; color: #e0e8ff;
 
     <div id="upload-zone">
       <label>上傳新 PDF 報告</label>
+      <input type="password" id="upload-password" placeholder="🔑 上傳密碼" style="width:100%;background:#0a0f1e;border:1px solid #1e90ff33;border-radius:4px;padding:6px 10px;color:#c8d8ff;font-size:0.78em;margin-bottom:6px;outline:none;">
       <div id="upload-btn" onclick="document.getElementById('file-input').click()">
         📂 點擊上傳 PDF 檔案（可多選）
       </div>
@@ -566,18 +567,23 @@ document.getElementById('file-input').onchange = async (e) => {
   const files = e.target.files;
   if (!files.length) return;
   const status = document.getElementById('upload-status');
+  const password = document.getElementById('upload-password').value;
   status.textContent = `上傳 ${files.length} 個檔案中...`;
 
   const fd = new FormData();
   for (const f of files) fd.append('files', f);
+  fd.append('password', password);
 
   const res = await fetch('/api/upload', { method: 'POST', body: fd });
+  if (res.status === 403) {
+    status.textContent = '❌ 密碼錯誤';
+    e.target.value = '';
+    return;
+  }
   const data = await res.json();
   const ok = data.uploaded.filter(x => x.ok).length;
   const fail = data.uploaded.length - ok;
   status.textContent = `✅ 成功 ${ok} 個` + (fail ? ` ⚠️ 失敗 ${fail} 個` : '');
-
-  // Reload
   await loadTrackers();
   e.target.value = '';
 };
@@ -595,7 +601,9 @@ uploadBtn.ondrop = async (e) => {
   status.textContent = `上傳 ${files.length} 個檔案中...`;
   const fd = new FormData();
   files.forEach(f => fd.append('files', f));
+  fd.append('password', document.getElementById('upload-password').value);
   const res = await fetch('/api/upload', { method: 'POST', body: fd });
+  if (res.status === 403) { status.textContent = '❌ 密碼錯誤'; return; }
   const data = await res.json();
   const ok = data.uploaded.filter(x => x.ok).length;
   status.textContent = `✅ 成功 ${ok} 個`;
