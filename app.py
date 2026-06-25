@@ -89,12 +89,16 @@ def parse_pdf(filepath):
 
 def load_cache():
     if not os.path.exists(CACHE_FILE):
-        return {}
+        return {"entries": {}, "all_trackers": []}
     try:
         with open(CACHE_FILE, encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
+        # 相容舊格式（只有 entries 沒有 all_trackers）
+        if isinstance(data, dict) and "entries" not in data:
+            return {"entries": data, "all_trackers": []}
+        return data
     except Exception:
-        return {}
+        return {"entries": {}, "all_trackers": []}
 
 
 def save_cache(cache):
@@ -104,10 +108,14 @@ def save_cache(cache):
 
 def load_all_trackers():
     cache = load_cache()
+    entries = cache.get("entries", {})
     trackers = []
     seen = set()
+    changed = False
 
     for d in [PDF_DIR, UPLOAD_DIR]:
+        if not os.path.exists(d):
+            continue
         for fname in os.listdir(d):
             if not fname.endswith(".pdf") or fname in seen:
                 continue
@@ -115,18 +123,27 @@ def load_all_trackers():
             path = os.path.join(d, fname)
             key = pdf_fingerprint(path)
 
-            if key in cache:
-                data = cache[key]
+            if key in entries:
+                data = entries[key]
             else:
                 data = parse_pdf(path)
                 if data:
-                    cache[key] = data
+                    entries[key] = data
+                    changed = True
 
             if data:
                 trackers.append(data)
 
-    save_cache(cache)
-    trackers.sort(key=lambda x: x["locations"][0]["time"])
+    if trackers:
+        trackers.sort(key=lambda x: x["locations"][0]["time"])
+        # 有 PDF 時更新完整清單快取
+        cache["entries"] = entries
+        cache["all_trackers"] = trackers
+        save_cache(cache)
+    else:
+        # 沒有 PDF（如雲端部署），直接回傳快取的完整清單
+        trackers = cache.get("all_trackers", [])
+
     return trackers
 
 
