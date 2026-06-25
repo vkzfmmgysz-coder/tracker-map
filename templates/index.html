@@ -146,8 +146,9 @@ body { font-family: 'Segoe UI', sans-serif; background: #0a0f1e; color: #e0e8ff;
   display: flex; align-items: center; justify-content: center;
 }
 #play-btn:hover { background: #3aa3ff; }
-#timeline-slider { flex: 1; accent-color: #1e90ff; cursor: pointer; }
-#time-display { font-size: 0.75em; color: #4fc3f7; min-width: 140px; text-align: right; white-space: nowrap; }
+#speed-label { font-size: 0.72em; color: #7bb3ff; white-space: nowrap; }
+#bottom-speed { flex: 1; accent-color: #1e90ff; cursor: pointer; max-width: 180px; }
+#time-display { font-size: 0.78em; color: #4fc3f7; white-space: nowrap; letter-spacing: 0.5px; }
 
 #stats-bar {
   position: absolute;
@@ -276,8 +277,10 @@ body { font-family: 'Segoe UI', sans-serif; background: #0a0f1e; color: #e0e8ff;
 
     <div id="timeline-bar">
       <button id="play-btn" title="播放/暫停">▶</button>
-      <input type="range" id="timeline-slider" min="0" max="100" value="0" step="0.1">
-      <div id="time-display">--</div>
+      <span style="font-size:0.72em;color:#7bb3ff;white-space:nowrap;">🐢 速度</span>
+      <input type="range" id="bottom-speed" min="1" max="10" value="5">
+      <span id="speed-val" style="font-size:0.78em;color:#4fc3f7;min-width:28px;">5x</span>
+      <div id="time-display">⏸ 按播放開始</div>
     </div>
   </div>
 </div>
@@ -554,7 +557,7 @@ function routeLength(latlngs) {
 
 function tickAnimation(ts) {
   if (!playing) return;
-  const speed = parseFloat(document.getElementById('speed-slider').value);
+  const speed = parseFloat(document.getElementById('bottom-speed').value);
   const dt = lastTs !== null ? (ts - lastTs) / 1000 : 0;
   lastTs = ts;
 
@@ -594,16 +597,8 @@ function tickAnimation(ts) {
     });
   });
 
-  // 時間軸顯示：用平均 phase
-  const avgP = visibleTrackers.length
-    ? visibleTrackers.reduce((s, t) => {
-        const raw = agentPhase[t.id] ?? 0;
-        return s + (raw <= 1 ? raw : 2 - raw);
-      }, 0) / visibleTrackers.length
-    : 0;
-  document.getElementById('timeline-slider').value = avgP * 100;
-  document.getElementById('stat-progress').textContent = (avgP * 100).toFixed(0) + '%';
-  document.getElementById('time-display').textContent = playing ? '🚶 動態移動中' : '⏸ 已暫停';
+  document.getElementById('stat-progress').textContent = playing ? '移動中' : '暫停';
+  document.getElementById('time-display').textContent = playing ? '🚶 線民移動中...' : '⏸ 已暫停';
 
   animFrame = requestAnimationFrame(tickAnimation);
 }
@@ -625,9 +620,16 @@ document.getElementById('play-btn').onclick = () => {
   }
 };
 
-// 滑桿改為速度倍率顯示，不再控制時間位置
-document.getElementById('timeline-slider').oninput = e => {
-  document.getElementById('speed-slider').value = Math.round(parseFloat(e.target.value) / 10);
+// 底部速度滑桿同步側邊欄速度滑桿
+document.getElementById('bottom-speed').oninput = e => {
+  const v = e.target.value;
+  document.getElementById('speed-slider').value = v;
+  document.getElementById('speed-val').textContent = v + 'x';
+};
+document.getElementById('speed-slider').oninput = e => {
+  const v = e.target.value;
+  document.getElementById('bottom-speed').value = v;
+  document.getElementById('speed-val').textContent = v + 'x';
 };
 
 // ── Upload ────────────────────────────────────────────────────
