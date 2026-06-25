@@ -147,6 +147,20 @@ def load_all_trackers():
     return trackers
 
 
+@app.route("/api/debug")
+def api_debug():
+    cache = load_cache()
+    return jsonify({
+        "cache_file_exists": os.path.exists(CACHE_FILE),
+        "cache_file_path": CACHE_FILE,
+        "all_trackers_count": len(cache.get("all_trackers", [])),
+        "entries_count": len(cache.get("entries", {})),
+        "pdf_dir": PDF_DIR,
+        "pdf_files": [f for f in os.listdir(PDF_DIR) if f.endswith(".pdf")],
+        "upload_files": [f for f in os.listdir(UPLOAD_DIR) if f.endswith(".pdf")] if os.path.exists(UPLOAD_DIR) else [],
+    })
+
+
 @app.route("/")
 def index():
     return render_template("index.html")
