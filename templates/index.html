@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>線民追蹤地圖</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Segoe UI', sans-serif; background: #0a0f1e; color: #e0e8ff; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+#header {
+  background: linear-gradient(90deg, #0d1b3e, #1a2a6c);
+  border-bottom: 2px solid #1e90ff44;
+  padding: 10px 20px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-shrink: 0;
+  z-index: 1000;
+}
+#header h1 { font-size: 1.3em; color: #4fc3f7; letter-spacing: 2px; text-shadow: 0 0 10px #1e90ff88; }
+#header .subtitle { font-size: 0.75em; color: #7bb3ff; }
+.badge { background: #1e90ff22; border: 1px solid #1e90ff55; border-radius: 4px; padding: 2px 8px; font-size: 0.75em; color: #4fc3f7; }
+
+#main { display: flex; flex: 1; overflow: hidden; }
+
+#sidebar {
+  width: 300px;
+  background: #0d1525;
+  border-right: 1px solid #1e90ff22;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+#sidebar-header {
+  padding: 12px 14px;
+  background: #111e3a;
+  border-bottom: 1px solid #1e90ff22;
+  font-size: 0.8em;
+  color: #7bb3ff;
+  letter-spacing: 1px;
+}
+#agent-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+#agent-list::-webkit-scrollbar { width: 4px; }
+#agent-list::-webkit-scrollbar-thumb { background: #1e90ff44; border-radius: 2px; }
+
+.agent-card {
+  background: #111e3a;
+  border: 1px solid #1e3a6644;
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+  position: relative;
+}
+.agent-card:hover { border-color: #1e90ff88; background: #162040; }
+.agent-card.active { border-color: var(--agent-color); background: #162040; box-shadow: 0 0 8px var(--agent-color-dim); }
+.agent-card .dot {
+  display: inline-block;
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: var(--agent-color);
+  margin-right: 6px;
+  box-shadow: 0 0 6px var(--agent-color);
+}
+.agent-card .name { font-size: 0.82em; font-weight: 600; color: #c8d8ff; }
+.agent-card .meta { font-size: 0.72em; color: #5a78a0; margin-top: 3px; }
+.agent-card .pts { font-size: 0.7em; color: #4fc3f7; margin-top: 2px; }
+.followed-badge { font-size: 0.62em; background: #c0392b33; color: #e74c3c; border: 1px solid #e74c3c55; border-radius: 3px; padding: 1px 5px; margin-left: 4px; }
+
+#controls {
+  padding: 12px 14px;
+  background: #0d1525;
+  border-top: 1px solid #1e90ff22;
+  border-bottom: 1px solid #1e90ff22;
+}
+#controls label { font-size: 0.72em; color: #7bb3ff; display: block; margin-bottom: 4px; }
+#speed-slider { width: 100%; accent-color: #1e90ff; }
+.filter-row { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.filter-btn {
+  font-size: 0.68em;
+  padding: 3px 8px;
+  border-radius: 3px;
+  border: 1px solid #1e90ff44;
+  background: transparent;
+  color: #7bb3ff;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.filter-btn:hover, .filter-btn.active { background: #1e90ff33; border-color: #1e90ff; color: #4fc3f7; }
+
+#upload-zone {
+  padding: 12px 14px;
+  border-top: 1px solid #1e90ff22;
+}
+#upload-zone label { font-size: 0.72em; color: #7bb3ff; display: block; margin-bottom: 6px; }
+#upload-btn {
+  display: block;
+  width: 100%;
+  background: #1a2a6c;
+  border: 1px dashed #1e90ff55;
+  border-radius: 6px;
+  color: #4fc3f7;
+  font-size: 0.78em;
+  padding: 10px;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.2s;
+}
+#upload-btn:hover { background: #1e3a8a; border-color: #1e90ff; }
+#file-input { display: none; }
+#upload-status { font-size: 0.7em; color: #5a78a0; margin-top: 4px; min-height: 16px; }
+
+#map { flex: 1; min-height: 0; height: 100%; }
+
+#timeline-bar {
+  position: absolute;
+  bottom: 30px;
+  left: 320px;
+  right: 20px;
+  background: #0d1525ee;
+  border: 1px solid #1e90ff33;
+  border-radius: 8px;
+  padding: 10px 16px;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+#play-btn {
+  background: #1e90ff;
+  border: none;
+  border-radius: 50%;
+  width: 32px; height: 32px;
+  color: white;
+  font-size: 1em;
+  cursor: pointer;
+  flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+}
+#play-btn:hover { background: #3aa3ff; }
+#timeline-slider { flex: 1; accent-color: #1e90ff; cursor: pointer; }
+#time-display { font-size: 0.75em; color: #4fc3f7; min-width: 140px; text-align: right; white-space: nowrap; }
+
+#stats-bar {
+  position: absolute;
+  top: 70px;
+  right: 12px;
+  background: #0d1525ee;
+  border: 1px solid #1e90ff22;
+  border-radius: 6px;
+  padding: 8px 12px;
+  z-index: 1000;
+  font-size: 0.72em;
+  color: #7bb3ff;
+  min-width: 140px;
+}
+#stats-bar div { margin-bottom: 3px; }
+#stats-bar span { color: #4fc3f7; font-weight: bold; }
+
+/* Spy figure SVG marker */
+.spy-icon { filter: drop-shadow(0 0 4px var(--glow)); transition: transform 0.3s; }
+
+.leaflet-container { background: #0f1929; }
+
+/* Loading */
+#loading {
+  position: absolute;
+  inset: 0;
+  background: #0a0f1ecc;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  font-size: 1.1em;
+  color: #4fc3f7;
+  letter-spacing: 2px;
+  flex-direction: column;
+  gap: 12px;
+}
+.spinner {
+  width: 36px; height: 36px;
+  border: 3px solid #1e90ff33;
+  border-top-color: #1e90ff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.5; } }
+.pulse { animation: pulse 1.5s ease infinite; }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <h1>🕵️ 線民追蹤地圖</h1>
+  <div>
+    <div class="subtitle">Tracker Movement Intelligence System</div>
+  </div>
+  <div style="margin-left:auto; display:flex; gap:8px; align-items:center;">
+    <span class="badge" id="badge-count">載入中...</span>
+    <span class="badge" id="badge-pts">0 個座標點</span>
+  </div>
+</div>
+
+<div id="main">
+  <div id="sidebar">
+    <div id="sidebar-header">📋 線民清單</div>
+
+    <div id="controls">
+      <label>動畫速度</label>
+      <input type="range" id="speed-slider" min="1" max="10" value="5">
+      <div class="filter-row" id="filter-row">
+        <button class="filter-btn active" data-filter="all">全部</button>
+        <button class="filter-btn" data-filter="followed">跟蹤者</button>
+        <button class="filter-btn" data-filter="Samsung Find My Mobile">Samsung</button>
+        <button class="filter-btn" data-filter="Google Find My Device">Google</button>
+      </div>
+    </div>
+
+    <div id="agent-list"></div>
+
+    <div id="upload-zone">
+      <label>上傳新 PDF 報告</label>
+      <div id="upload-btn" onclick="document.getElementById('file-input').click()">
+        📂 點擊上傳 PDF 檔案（可多選）
+      </div>
+      <input type="file" id="file-input" multiple accept=".pdf">
+      <div id="upload-status"></div>
+    </div>
+  </div>
+
+  <div style="position:relative; flex:1;">
+    <div id="map"></div>
+    <div id="loading"><div class="spinner"></div><div class="pulse">解析追蹤資料中...</div></div>
+
+    <div id="stats-bar">
+      <div>線民總數：<span id="stat-agents">0</span></div>
+      <div>跟蹤案例：<span id="stat-followed">0</span></div>
+      <div>座標點：<span id="stat-pts">0</span></div>
+      <div>播放進度：<span id="stat-progress">0%</span></div>
+    </div>
+
+    <div id="timeline-bar">
+      <button id="play-btn" title="播放/暫停">▶</button>
+      <input type="range" id="timeline-slider" min="0" max="100" value="0" step="0.1">
+      <div id="time-display">--</div>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// ── Map init ──────────────────────────────────────────────────
+const map = L.map('map', { zoomControl: true }).setView([25.05, 121.53], 13);
+
+// 嘗試 CartoDB dark，失敗時 fallback 到 OSM
+const darkTile = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  attribution: '© OpenStreetMap © CARTO', maxZoom: 19
+});
+const osmTile = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '© OpenStreetMap', maxZoom: 19
+});
+darkTile.addTo(map);
+darkTile.once('tileerror', () => { map.removeLayer(darkTile); osmTile.addTo(map); });
+
+// ── State ─────────────────────────────────────────────────────
+let allTrackers = [];
+let visibleTrackers = [];
+let currentFilter = 'all';
+let selectedId = null;
+
+// Animation
+let playing = false;
+let animFrame = null;
+let animProgress = 0; // 0..1
+let animSpeed = 0.0003;
+let lastTs = null;
+
+// Leaflet layers per agent
+const agentLayers = {}; // id -> { polyline, markers, spyMarker, trail }
+
+// ── Spy SVG icon ─────────────────────────────────────────────
+function spySvg(color, size = 36) {
+  const s = size;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${s}" height="${s*1.4}" viewBox="0 0 36 50">
+    <!-- Shadow -->
+    <ellipse cx="18" cy="48" rx="9" ry="3" fill="rgba(0,0,0,0.4)"/>
+    <!-- Body -->
+    <rect x="10" y="22" width="16" height="18" rx="3" fill="${color}"/>
+    <!-- Head -->
+    <circle cx="18" cy="15" r="9" fill="${color}"/>
+    <!-- Hat brim -->
+    <rect x="7" y="8" width="22" height="3" rx="2" fill="#1a1a2e"/>
+    <!-- Hat top -->
+    <rect x="11" y="2" width="14" height="9" rx="2" fill="#1a1a2e"/>
+    <!-- Eyes -->
+    <circle cx="14" cy="15" r="2.5" fill="white"/>
+    <circle cx="22" cy="15" r="2.5" fill="white"/>
+    <circle cx="14.5" cy="15" r="1.2" fill="#111"/>
+    <circle cx="22.5" cy="15" r="1.2" fill="#111"/>
+    <!-- Legs -->
+    <rect x="11" y="38" width="5" height="10" rx="2" fill="${color}"/>
+    <rect x="20" y="38" width="5" height="10" rx="2" fill="${color}"/>
+    <!-- Glow -->
+    <circle cx="18" cy="15" r="9" fill="none" stroke="${color}" stroke-width="1.5" opacity="0.4"/>
+  </svg>`;
+}
+
+function makeSpyIcon(color, size = 36) {
+  return L.divIcon({
+    html: spySvg(color, size),
+    iconSize: [size, size * 1.4],
+    iconAnchor: [size / 2, size * 1.4],
+    className: '',
+  });
+}
+
+// ── Pulse marker for individual points ───────────────────────
+function pulseIcon(color) {
+  return L.divIcon({
+    html: `<div style="width:10px;height:10px;border-radius:50%;background:${color};box-shadow:0 0 8px ${color};border:1px solid white;"></div>`,
+    iconSize: [10, 10],
+    iconAnchor: [5, 5],
+    className: '',
+  });
+}
+
+// ── Load trackers ─────────────────────────────────────────────
+async function loadTrackers() {
+  const loadingEl = document.getElementById('loading');
+  loadingEl.querySelector('.pulse').textContent = '解析追蹤資料中（首次載入需約30秒）...';
+  try {
+    const res = await fetch('/api/trackers');
+    allTrackers = await res.json();
+  } catch (e) {
+    loadingEl.querySelector('.pulse').textContent = '❌ 無法連接伺服器，請重新整理';
+    return;
+  }
+  loadingEl.style.display = 'none';
+  applyFilter();
+  updateStats();
+}
+
+// ── Build/update layers ───────────────────────────────────────
+function buildLayers() {
+  // Remove old
+  Object.values(agentLayers).forEach(l => {
+    if (l.polyline) map.removeLayer(l.polyline);
+    if (l.spyMarker) map.removeLayer(l.spyMarker);
+    if (l.dots) l.dots.forEach(m => map.removeLayer(m));
+    if (l.trail) map.removeLayer(l.trail);
+  });
+  Object.keys(agentLayers).forEach(k => delete agentLayers[k]);
+
+  visibleTrackers.forEach(t => {
+    if (t.locations.length < 1) return;
+    const latlngs = t.locations.map(l => [l.lat, l.lng]);
+
+    // Full route polyline (dim)
+    const polyline = L.polyline(latlngs, {
+      color: t.color,
+      weight: 1.5,
+      opacity: 0.25,
+      dashArray: '4,6',
+    }).addTo(map);
+
+    // Dot markers at each point
+    const dots = t.locations.map((loc, i) => {
+      const m = L.marker([loc.lat, loc.lng], { icon: pulseIcon(t.color) })
+        .addTo(map)
+        .bindPopup(`<b style="color:${t.color}">${t.device_type}</b><br>${loc.time_display}<br>📍 ${loc.lat.toFixed(5)}, ${loc.lng.toFixed(5)}`);
+      return m;
+    });
+
+    // Animated trail (starts empty)
+    const trail = L.polyline([], {
+      color: t.color,
+      weight: 3,
+      opacity: 0.9,
+    }).addTo(map);
+
+    // Spy marker at first location
+    const spyMarker = L.marker(latlngs[0], {
+      icon: makeSpyIcon(t.color),
+      zIndexOffset: 1000,
+    }).addTo(map)
+      .bindPopup(`<b style="color:${t.color}">🕵️ ${t.device_type}</b><br>線民 ID: ${t.id}<br>${t.followed ? '⚠️ 曾跟蹤你' : '✅ 未跟蹤'}`);
+
+    agentLayers[t.id] = { polyline, dots, trail, spyMarker, latlngs };
+  });
+}
+
+// ── Sidebar list ──────────────────────────────────────────────
+function renderSidebar() {
+  const el = document.getElementById('agent-list');
+  el.innerHTML = '';
+
+  if (visibleTrackers.length === 0) {
+    el.innerHTML = '<div style="padding:16px;color:#5a78a0;font-size:0.8em;text-align:center;">無符合條件的線民</div>';
+    return;
+  }
+
+  visibleTrackers.forEach((t, idx) => {
+    const card = document.createElement('div');
+    card.className = 'agent-card' + (t.id === selectedId ? ' active' : '');
+    card.style.setProperty('--agent-color', t.color);
+    card.style.setProperty('--agent-color-dim', t.color + '44');
+    card.innerHTML = `
+      <span class="dot"></span>
+      <span class="name">${idx + 1}. ${t.device_type}</span>
+      ${t.followed ? '<span class="followed-badge">跟蹤者</span>' : ''}
+      <div class="meta">ID: ${t.id} · ${t.locations.length} 個座標</div>
+      <div class="pts">首次: ${t.locations[0]?.time_display || '?'}</div>
+      <div class="pts">最後: ${t.locations[t.locations.length-1]?.time_display || '?'}</div>
+    `;
+    card.onclick = () => selectAgent(t.id);
+    el.appendChild(card);
+  });
+}
+
+function selectAgent(id) {
+  selectedId = (selectedId === id) ? null : id;
+  renderSidebar();
+
+  if (selectedId) {
+    const t = allTrackers.find(x => x.id === selectedId);
+    if (t && t.locations.length) {
+      map.flyTo([t.locations[0].lat, t.locations[0].lng], 15, { duration: 1 });
+      agentLayers[t.id]?.spyMarker?.openPopup();
+    }
+  }
+}
+
+// ── Filter ────────────────────────────────────────────────────
+function applyFilter() {
+  if (currentFilter === 'all') {
+    visibleTrackers = [...allTrackers];
+  } else if (currentFilter === 'followed') {
+    visibleTrackers = allTrackers.filter(t => t.followed);
+  } else {
+    visibleTrackers = allTrackers.filter(t => t.device_type === currentFilter);
+  }
+  buildLayers();
+  renderSidebar();
+  updateStats();
+
+  // Fit map
+  const pts = visibleTrackers.flatMap(t => t.locations.map(l => [l.lat, l.lng]));
+  if (pts.length) map.fitBounds(pts, { padding: [40, 40] });
+}
+
+document.querySelectorAll('.filter-btn').forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentFilter = btn.dataset.filter;
+    applyFilter();
+  };
+});
+
+// ── Stats ─────────────────────────────────────────────────────
+function updateStats() {
+  const total = visibleTrackers.length;
+  const followed = visibleTrackers.filter(t => t.followed).length;
+  const pts = visibleTrackers.reduce((s, t) => s + t.locations.length, 0);
+  document.getElementById('stat-agents').textContent = total;
+  document.getElementById('stat-followed').textContent = followed;
+  document.getElementById('stat-pts').textContent = pts;
+  document.getElementById('badge-count').textContent = `${total} 個線民`;
+  document.getElementById('badge-pts').textContent = `${pts} 個座標點`;
+}
+
+// ── Animation ─────────────────────────────────────────────────
+// Collect all timestamps across all visible trackers
+function allTimestamps() {
+  const ts = visibleTrackers.flatMap(t => t.locations.map(l => new Date(l.time).getTime()));
+  if (!ts.length) return { min: 0, max: 1 };
+  return { min: Math.min(...ts), max: Math.max(...ts) };
+}
+
+function interpolatePosition(latlngs, progress) {
+  if (!latlngs || latlngs.length === 0) return null;
+  if (latlngs.length === 1) return latlngs[0];
+  const total = latlngs.length - 1;
+  const idx = progress * total;
+  const lo = Math.floor(idx);
+  const hi = Math.min(lo + 1, total);
+  const t = idx - lo;
+  const a = latlngs[lo], b = latlngs[hi];
+  return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+}
+
+function tickAnimation(ts) {
+  if (!playing) return;
+  if (lastTs !== null) {
+    const speed = parseFloat(document.getElementById('speed-slider').value);
+    animProgress += ((ts - lastTs) / 1000) * speed * 0.015;
+    if (animProgress > 1) animProgress = 0; // loop
+  }
+  lastTs = ts;
+
+  const { min, max } = allTimestamps();
+  const curTime = min + animProgress * (max - min);
+
+  // Update slider & display
+  document.getElementById('timeline-slider').value = animProgress * 100;
+  document.getElementById('stat-progress').textContent = (animProgress * 100).toFixed(1) + '%';
+  const d = new Date(curTime);
+  document.getElementById('time-display').textContent = isNaN(d) ? '--' :
+    d.toLocaleString('zh-TW', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+  // Update each agent
+  visibleTrackers.forEach(t => {
+    const layer = agentLayers[t.id];
+    if (!layer) return;
+
+    const tMin = new Date(t.locations[0].time).getTime();
+    const tMax = new Date(t.locations[t.locations.length - 1].time).getTime();
+    const localP = tMax === tMin ? 0 : Math.max(0, Math.min(1, (curTime - tMin) / (tMax - tMin)));
+
+    // Trail
+    const trailCount = Math.floor(localP * (layer.latlngs.length - 1)) + 1;
+    layer.trail.setLatLngs(layer.latlngs.slice(0, trailCount));
+
+    // Spy position
+    const pos = interpolatePosition(layer.latlngs, localP);
+    if (pos) layer.spyMarker.setLatLng(pos);
+
+    // Dim dots that haven't been reached
+    layer.dots.forEach((dot, i) => {
+      const opacity = (i / (t.locations.length - 1)) <= localP ? 1 : 0.2;
+      dot.setOpacity(opacity);
+    });
+  });
+
+  animFrame = requestAnimationFrame(tickAnimation);
+}
+
+document.getElementById('play-btn').onclick = () => {
+  playing = !playing;
+  document.getElementById('play-btn').textContent = playing ? '⏸' : '▶';
+  if (playing) {
+    lastTs = null;
+    animFrame = requestAnimationFrame(tickAnimation);
+  } else {
+    if (animFrame) cancelAnimationFrame(animFrame);
+  }
+};
+
+document.getElementById('timeline-slider').oninput = e => {
+  animProgress = parseFloat(e.target.value) / 100;
+  lastTs = null;
+  if (!playing) tickAnimation(performance.now());
+};
+
+// ── Upload ────────────────────────────────────────────────────
+document.getElementById('file-input').onchange = async (e) => {
+  const files = e.target.files;
+  if (!files.length) return;
+  const status = document.getElementById('upload-status');
+  status.textContent = `上傳 ${files.length} 個檔案中...`;
+
+  const fd = new FormData();
+  for (const f of files) fd.append('files', f);
+
+  const res = await fetch('/api/upload', { method: 'POST', body: fd });
+  const data = await res.json();
+  const ok = data.uploaded.filter(x => x.ok).length;
+  const fail = data.uploaded.length - ok;
+  status.textContent = `✅ 成功 ${ok} 個` + (fail ? ` ⚠️ 失敗 ${fail} 個` : '');
+
+  // Reload
+  await loadTrackers();
+  e.target.value = '';
+};
+
+// Drag and drop
+const uploadBtn = document.getElementById('upload-btn');
+uploadBtn.ondragover = e => { e.preventDefault(); uploadBtn.style.borderColor = '#1e90ff'; };
+uploadBtn.ondragleave = () => { uploadBtn.style.borderColor = '#1e90ff55'; };
+uploadBtn.ondrop = async (e) => {
+  e.preventDefault();
+  uploadBtn.style.borderColor = '#1e90ff55';
+  const files = [...e.dataTransfer.files].filter(f => f.name.endsWith('.pdf'));
+  if (!files.length) return;
+  const status = document.getElementById('upload-status');
+  status.textContent = `上傳 ${files.length} 個檔案中...`;
+  const fd = new FormData();
+  files.forEach(f => fd.append('files', f));
+  const res = await fetch('/api/upload', { method: 'POST', body: fd });
+  const data = await res.json();
+  const ok = data.uploaded.filter(x => x.ok).length;
+  status.textContent = `✅ 成功 ${ok} 個`;
+  await loadTrackers();
+};
+
+// ── Init ──────────────────────────────────────────────────────
+loadTrackers();
+</script>
+</body>
+</html>
